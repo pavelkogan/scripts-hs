@@ -1,0 +1,24 @@
+name:                scripts-hs
+version:             0.1.0.0
+synopsis:            Simple project template from stack
+description:         Please see README.md
+homepage:            https://github.com/pavelkogan/scripts-hs#readme
+license:             BSD3
+author:              Pavel Kogan
+maintainer:          pkogan@gmail.com
+copyright:           BSD3
+category:            Web
+
+dependencies:
+  - base >= 4.7 && < 5
+  - friendly-time
+  - time
+
+ghc-options:
+  - -Wall
+  - -O2
+
+executables:
+  timelapse:
+    source-dirs:      src
+    main:             timelapse.hs
