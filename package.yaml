@@ -12,6 +12,11 @@ category:            Web
 dependencies:
   - base >= 4.7 && < 5
 
+default-extensions:
+  - LambdaCase
+  - OverloadedStrings
+  - TupleSections
+
 ghc-options:
   - -Wall
   - -O2
@@ -23,3 +28,9 @@ executables:
     dependencies:
       - friendly-time
       - time
+  mvt:
+    source-dirs:      src
+    main:             mvt.hs
+    dependencies:
+      - extra
+      - turtle
