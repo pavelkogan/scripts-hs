@@ -11,8 +11,6 @@ category:            Web
 
 dependencies:
   - base >= 4.7 && < 5
-  - friendly-time
-  - time
 
 ghc-options:
   - -Wall
@@ -22,3 +20,6 @@ executables:
   timelapse:
     source-dirs:      src
     main:             timelapse.hs
+    dependencies:
+      - friendly-time
+      - time
