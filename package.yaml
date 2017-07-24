@@ -34,3 +34,14 @@ executables:
     dependencies:
       - extra
       - turtle
+  zfs-snapshot-clean:
+    source-dirs:      src
+    main:             zfs-snapshot-clean.hs
+    dependencies:
+      - attoparsec
+      - bytestring
+      - cassava
+      - classy-prelude
+      - data-has
+      - lens
+      - turtle
