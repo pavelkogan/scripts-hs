@@ -1,8 +1,8 @@
 {-# LANGUAGE RecordWildCards #-}
 
 import Control.Monad
+import Control.Monad.Extra
 import Data.Maybe
-import Extra
 import Prelude hiding (FilePath)
 import Turtle
 
