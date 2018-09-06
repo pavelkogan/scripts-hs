@@ -34,3 +34,10 @@ executables:
     dependencies:
       - extra
       - turtle
+  tmsu-add-tags:
+    source-dirs:      src
+    main:             tmsu-add-tags.hs
+    dependencies:
+      - basic-prelude
+      - hzenity
+      - turtle
