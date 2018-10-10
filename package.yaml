@@ -38,6 +38,13 @@ executables:
     source-dirs:      src
     main:             tmsu-add-tags.hs
     dependencies:
-      - basic-prelude
+      - classy-prelude
+      - exceptions
+      - filepath
       - hzenity
-      - turtle
+      - optparse-applicative
+      - path
+      - path-io
+      - text-conversions
+      - typed-process
+      - unliftio

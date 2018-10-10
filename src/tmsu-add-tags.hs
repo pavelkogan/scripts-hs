@@ -1,37 +1,70 @@
 {-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 
-import BasicPrelude hiding (FilePath, empty)
-import System.IO.Unsafe
-import Turtle hiding (text)
+module Main (main) where
+
+import qualified UnliftIO.Directory as Directory
+
+import ClassyPrelude
+import Control.Monad.Catch
+import Data.Text.Conversions
+import Options.Applicative
+import Path
+import Path.IO
+import System.Exit
+import System.FilePath (isValid)
+import System.Process.Typed
 import Zenity
+
+newtype Symlink = Symlink { getSymlink :: Path Abs File } deriving (Show, Eq)
+
+fromSymlink :: Symlink -> FilePath
+fromSymlink = fromAbsFile . getSymlink
+
+toSymlink :: MonadIO m => Path Abs File -> m Symlink
+toSymlink p = pure (Symlink p)
+  -- can't check because tmsu FUSE dies when checking the symlink:
+  -- unlessM (isSymlink p) $ throwString ("not a symlink: " <> toFilePath p)
 
 type Tag = Text
 
-parser :: Parser [FilePath]
-parser = some $ argPath "files" "files to tag"
+parserInfo :: ParserInfo [FilePath]
+parserInfo = info (helper <*> parser) (header "tmsu-add-tags")
+  where
+    parser = some $ pathArgument (metavar "FILES" <> help "files to tag")
+    pathArgument = argument $
+      maybeReader (\s -> if isValid s then Just s else Nothing)
 
 main :: IO ()
-main = do
-  args <- options "tmsu-add-tags" parser
-  shouldFollowLinks <- not <$> inTaggedTree (head args)
-  files <- if shouldFollowLinks then followLinks args
-           else return args
+main = handleAny (zen Error . tshow) $ do
+  args <- execParser parserInfo
+  argPaths <- traverse toAbsolute args
+  shouldFollowLinks <- not <$> inTaggedTree (headEx argPaths)
+  files <- if shouldFollowLinks
+    then followLinks =<< traverse toSymlink argPaths
+    else return argPaths
   tags <- getTags
   addTags tags files
 
-followLinks :: MonadIO m => [FilePath] -> m [FilePath]
-followLinks links = do
-  paths <- catMaybes <$> traverse readlink links
-  files <- filterM testfile paths
-  return files
+toAbsolute :: FilePath -> IO (Path Abs File)
+toAbsolute = parseAbsFile <=< Directory.makeAbsolute
 
-readlink :: MonadIO m => FilePath -> m (Maybe FilePath)
-readlink link = do
-  let linkText = fromString $ encodeString link
-  (_, ret) <- procStrict "readlink" ["-q", linkText] empty
-  let mpath = map fromText $ listToMaybe $ lines ret
-  return mpath
+followLinks :: MonadIO m => [Symlink] -> m [Path Abs File]
+followLinks links = do
+  paths <- traverse readlink links
+  filterM doesFileExist paths
+
+readlink :: MonadIO m => Symlink -> m (Path Abs File)
+readlink lnk = do
+  ret <- readProcessStdout_ $ proc "readlink" ["-q", fromSymlink lnk]
+  let mpath = parseAbsFile =<< map fromText (listToMaybe (asTextLines ret))
+  case mpath of
+    Nothing -> throwString $ "readlink failed for: " <> fromSymlink lnk
+    Just path -> return path
+  where
+    asTextLines :: DecodeText Maybe (UTF8 a) => a -> [Text]
+    asTextLines b = join . maybeToList . map lines $ decodeText (UTF8 b)
 
 getTags :: IO [Tag]
 getTags = do
@@ -40,34 +73,20 @@ getTags = do
   let entry = maybeToList mentry
   return $ words =<< entry
 
-addTags :: MonadIO m => [Tag] -> [FilePath] -> m ()
-addTags tags files = inDir (parent (head files)) $ do
-  let tagStr = unwords tags
-  let args = ["tag", "--tags=\""<>tagStr<>"\""] ++ (toText' <$> files)
-  (ec, sout, serr) <- procStrictWithErr "tmsu" args empty
+addTags :: (MonadUnliftIO m, MonadMask m) => [Tag] -> [Path Abs File] -> m ()
+addTags tags files = withCurrentDir (parent (headEx files)) $ do
+  let tagStr = fromText $ unwords tags
+  let args = ["tag", "--tags=\""<>tagStr<>"\""] ++ (toFilePath <$> files)
+  (ec, sout, serr) <- readProcess $ proc "tmsu" args
   case ec of
-    ExitSuccess -> unless (sout == mempty) $ notifyMsgIO sout
-    ExitFailure _ -> warnMsgIO serr
+    ExitSuccess -> unless (sout == mempty) $ zen Notification $ decodeUtf8 $ toStrict sout
+    ExitFailure _ -> zen Warning $ decodeUtf8 $ toStrict serr
 
-inDir :: MonadIO m => FilePath -> m a -> m a
-inDir newDir action = do
-  oldDir <- pwd
-  cd newDir
-  ret <- action
-  cd oldDir
-  return ret
-
-inTaggedTree :: MonadIO m => FilePath -> m Bool
-inTaggedTree file = inDir (parent file) $ do
-  (ec, _, _) <- procStrictWithErr "tmsu" ["info"] empty
+inTaggedTree :: (MonadUnliftIO m, MonadMask m) => Path Abs File -> m Bool
+inTaggedTree file = withCurrentDir (parent file) $ do
+  ec <- runProcess $ proc "tmsu" ["info"]
   return $ ec == ExitSuccess
 
-toText' :: FilePath -> Text
-toText' = either (errorMsg "Failed to decode FilePath") id . toText
-
-errorMsg :: Text -> a
-errorMsg msg = unsafePerformIO $ zenity def (Error def{ text = Just msg }) >> undefined
-
-warnMsgIO, notifyMsgIO :: MonadIO m => Text -> m ()
-warnMsgIO msg = liftIO $ zenity def (Warning def{ text = Just msg })
-notifyMsgIO msg = liftIO $ zenity def (Notification def{ text = Just msg })
+type DialogType = InfoFlags -> Dialog () -- Error | Warning | Notification
+zen :: MonadIO m => DialogType -> Text -> m ()
+zen dia msg = liftIO $ zenity def (dia def{ text = Just msg })
